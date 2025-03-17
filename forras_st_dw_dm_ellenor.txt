@@ -1,0 +1,207 @@
+Ellenõrzési szempontok:
+
+Egyediség ellenõrzés (módszer excel pivot)
+mezõ egyedigés sértés kb 4200 db
+tábla + mezõ egyediség sértés kb 2800 db (lást az xlsx elemzés munkalap)
+forrás + tábla + mezõ egyediség sértés 0 --> legalább ilyen szinten kell a névképzést tervezni
+
+FK (lookup) folyamatnál a forrás név figyelés is kell alkalmazni
+Jelenleg az excel dependency munkalapnál csak ez szerepel
+svkht	dbo	BMENET	svkht	dbo	AUTOK
+
+És nincs jelezve a svtt forrás reláció
+
+Idegenkulcsnak használ mezõ táblából több is van 		
+ez saját sémában nem gond de összetöltés után errõl is gondoskodni kell, hogy az FK-zás helyesen lefússon.
+
+pl:		
+svtt	dbo	AUTOK
+svkht	dbo	AUTOK
+		
+svtt	dbo	BMENET
+svkht	dbo	BMENET
+
+
+
+Javasolt Név konvenciók:
+-- tábla nevezéktan:
+ST (stages): összes forrás tábla, öszes mezõ (mezõnev, táblanév, sémanév +'_st')
+ + betöltési dátum       : load_job_date
+ + betöltõ job azonosító : load_job_id
+	  
+DW (data warehouse): összes forrás tábla, öszes mezõ  (mezõnev, táblanév, sémanév +'_dw')
+ + valid_fom
+ + valid_to
+ + dw_id
+ + source_system_id
+ + source_key_1  - 5
+ + source_obj_id
+ + active_flag
+ + upd_job_id (bekerülési vagy módosítási töldés id)
+ + lost_upd_job_id (kikerülési töldés id)
+ 
+DM (data mart): összes cél (riport igény) táblazes mezõ (mezõnev, táblanév, sémanév +'_dm')
+ + valid_fom
+ + valid_to
+ + dm_id
+ + dw_id
+ 
+-- seq, proc, 
+
+-- Meta séma  (meta object : mo)
+
+ + mo_source_object
+ + mo_source_system
+ + mo_job
+	+ mo_job_hist
+	+ mo_job_hist_log
+	+ mo_job_dependency
+
+------ További MS SQL szerver és oracle db szintû konkrét parancs minták a táblák+mezõk, függések, tárolt eljárások, ... meglétének helyességének ellenõrzésére
+(minden tábla mezõ, minden kulcs, .... megvan-e)
+	
+---- Oracale DB specifikus vizsgálatok
+
+-- procedura lista:
+SELECT owner, object_name FROM dba_objects WHERE 1=1
+and owner = 'KLAJOS' and object_type = 'PROCEDURE'
+
+-- tábla és mezõ lista
+SELECT * FROM dba_TAB_COLS WHERE 1=1
+and owner = 'KLAJOS'
+
+-- megszorítások
+SELECT *
+FROM all_constraints WHERE 1=1
+and owner = 'KLAJOS'
+
+-- szekvenciák
+SELECT * FROM ALL_SEQUENCES WHERE 1=1
+and SEQUENCE_owner = 'KLAJOS'
+
+-- indexek
+select * from all_indexes WHERE 1=1
+and owner = 'KLAJOS'
+
+-- triggerek
+select * from aLL_TRIGGERS WHERE 1=1
+and owner = 'KLAJOS'
+
+
+---- ms sql szerer specifikus vizsgálatok
+
+-- procedura lista:
+SELECT 
+    SchemaName = s.name,
+    ProcedureName = pr.name 
+FROM 
+    databasename.sys.procedures pr
+
+
+-- tábla és mezõ lista
+SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, ORDINAL_POSITION,
+       COLUMN_DEFAULT, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH,
+       NUMERIC_PRECISION, NUMERIC_PRECISION_RADIX, NUMERIC_SCALE,
+       DATETIME_PRECISION
+FROM INFORMATION_SCHEMA.COLUMNS
+
+
+/*
+SELECT t.name 
+  FROM sys.tables AS t
+  INNER JOIN sys.schemas AS s
+  ON t.[schema_id] = s.[schema_id]
+  WHERE s.name = N'schema_name';
+/* */
+
+
+-- megszorítások :
+SELECT 
+    TableName = t.Name,
+    ColumnName = c.Name,
+    dc.Name,
+    dc.definition
+FROM sys.tables t
+INNER JOIN sys.default_constraints dc ON t.object_id = dc.parent_object_id
+INNER JOIN sys.columns c ON dc.parent_object_id = c.object_id AND c.column_id = dc.parent_column_id
+ORDER BY t.Name
+
+/*
+    sys.default_constraints ->  default constraints on columns
+    sys.check_constraints -> check constraints on columns
+    sys.key_constraints   -> key constraints (e.g. primary keys)
+    sys.foreign_keys       ->  foreign key relations
+/* */
+
+-- indexek megléte:
+SELECT 
+     TableName = t.name,
+     IndexName = ind.name,
+     IndexId = ind.index_id,
+     ColumnId = ic.index_column_id,
+     ColumnName = col.name,
+     ind.*,
+     ic.*,
+     col.* 
+FROM 
+     sys.indexes ind 
+INNER JOIN 
+     sys.index_columns ic ON  ind.object_id = ic.object_id and ind.index_id = ic.index_id 
+INNER JOIN 
+     sys.columns col ON ic.object_id = col.object_id and ic.column_id = col.column_id 
+INNER JOIN 
+     sys.tables t ON ind.object_id = t.object_id 
+WHERE 
+     ind.is_primary_key = 0 
+     AND ind.is_unique = 0 
+     AND ind.is_unique_constraint = 0 
+     AND t.is_ms_shipped = 0 
+ORDER BY 
+     t.name, ind.name, ind.index_id, ic.index_column_id 
+	 
+-- triggerek:
+SELECT 
+     sysobjects.name AS trigger_name 
+    ,USER_NAME(sysobjects.uid) AS trigger_owner 
+    ,s.name AS table_schema 
+    ,OBJECT_NAME(parent_obj) AS table_name 
+    ,OBJECTPROPERTY( id, 'ExecIsUpdateTrigger') AS isupdate 
+    ,OBJECTPROPERTY( id, 'ExecIsDeleteTrigger') AS isdelete 
+    ,OBJECTPROPERTY( id, 'ExecIsInsertTrigger') AS isinsert 
+    ,OBJECTPROPERTY( id, 'ExecIsAfterTrigger') AS isafter 
+    ,OBJECTPROPERTY( id, 'ExecIsInsteadOfTrigger') AS isinsteadof 
+    ,OBJECTPROPERTY(id, 'ExecIsTriggerDisabled') AS [disabled] 
+FROM sysobjects 
+INNER JOIN sysusers ON sysobjects.uid = sysusers.uid 
+INNER JOIN sys.tables t  ON sysobjects.parent_obj = t.object_id 
+INNER JOIN sys.schemas s ON t.schema_id = s.schema_id 
+WHERE sysobjects.type = 'TR' 
+
+--------------------  Kiindulás:
+select 'KEFUJ',col.table_schema,col.table_name,col.column_name, col.data_type, 
+(select 'YES' FROM 
+    information_schema.table_constraints AS tc 
+    JOIN information_schema.key_column_usage AS kcu
+      ON tc.constraint_name = kcu.constraint_name
+    JOIN information_schema.constraint_column_usage AS ccu
+      ON ccu.constraint_name = tc.constraint_name
+WHERE constraint_type = 'PRIMARY KEY' and tc.table_name = col.table_name AND kcu.column_name = col.column_name
+group by 1)
+as pk,
+fk.foreign_table_name, fk.foreign_column_name
+from information_schema.columns col 
+left outer join 
+ (SELECT
+     tc.table_name, kcu.column_name,
+     ccu.table_name AS foreign_table_name,
+     ccu.column_name AS foreign_column_name 
+ FROM 
+     information_schema.table_constraints AS tc 
+     JOIN information_schema.key_column_usage AS kcu
+       ON tc.constraint_name = kcu.constraint_name
+     JOIN information_schema.constraint_column_usage AS ccu
+       ON ccu.constraint_name = tc.constraint_name
+ WHERE constraint_type = 'FOREIGN KEY') as fk on fk.column_name = col.column_name and fk.table_name = col.table_name
+where col.table_name in ('user','sales_order_item')
+order by 1,2,3
+-----
